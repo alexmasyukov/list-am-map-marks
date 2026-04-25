@@ -1,0 +1,26 @@
+#mapinfo .lam-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: #fff;
+  border-top: 1px solid #e5e5e5;
+  font: 13px/1.2 -apple-system, system-ui, sans-serif;
+}
+
+#mapinfo .lam-btn {
+  flex: 1 1 auto;
+  padding: 6px 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  background: #fafafa;
+  cursor: pointer;
+  color: #222;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s;
+}
+#mapinfo .lam-btn:hover { background: #f0f0f0; }
+
+#mapinfo .lam-btn.lam-important.lam-active { background: #ffd54f; border-color: #f3b400; color: #5a3d00; }
+#mapinfo .lam-btn.lam-medium.lam-active    { background: #b3e5fc; border-color: #0288d1; color: #013a52; }
+#mapinfo .lam-btn.lam-hidden.lam-active    { background: #ef9a9a; border-color: #c62828; color: #5a0000; }
+

@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "list.am map marks",
+  "version": "0.1.0",
+  "description": "Метки на карте list.am: важное / среднее / скрыть.",
+  "permissions": ["storage"],
+  "host_permissions": ["*://*.list.am/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "list.am map marks",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.list.am/category/*", "*://*.list.am/*"],
+      "js": ["content.js"],
+      "css": ["ui.css"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["*://*.list.am/*"]
+    }
+  ]
+}
