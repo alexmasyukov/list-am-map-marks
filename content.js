@@ -49,6 +49,8 @@
       marksCache = changes[STORAGE_MARKS].newValue || {};
       pushMarksToMain();
       refreshButtonsForCurrentMapinfo();
+      const itemId = itemIdFromLocation();
+      if (itemId) refreshButtonsForItemPage(itemId);
     }
     if (changes[STORAGE_SETTINGS]) {
       settingsCache = Object.assign({}, DEFAULT_SETTINGS, changes[STORAGE_SETTINGS].newValue || {});
@@ -156,10 +158,82 @@
     mo.observe(document.documentElement, { childList: true, subtree: true });
   };
 
+  // ---------- item page UI ----------
+  const itemIdFromLocation = () => {
+    const m = location.pathname.match(/\/(?:[a-z]{2}\/)?item\/(\d+)/);
+    return m ? m[1] : null;
+  };
+
+  const ensureButtonsOnItemPage = () => {
+    const itemId = itemIdFromLocation();
+    if (!itemId) return;
+
+    // Берём ПЕРВЫЙ ВИДИМЫЙ H1 — на странице объявления их два
+    // (скрытый дубль для метаданных + реальный заголовок).
+    const h1 = Array.from(document.querySelectorAll('h1[itemprop="name"], h1')).find(h => {
+      const r = h.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+    if (!h1 || !h1.parentNode) return;
+
+    const existing = document.querySelector('.lam-item-bar');
+    if (existing) {
+      // если панель оказалась раньше нашего видимого h1 (вставилась в невидимый блок) —
+      // переносим её под видимый h1
+      if (existing.previousElementSibling !== h1) {
+        h1.insertAdjacentElement('afterend', existing);
+      }
+      refreshButtonsForItemPage(itemId);
+      return;
+    }
+
+    const bar = document.createElement('div');
+    bar.className = 'lam-bar lam-item-bar';
+    bar.dataset.itemId = itemId;
+
+    for (const [status, meta] of Object.entries(STATUSES)) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `lam-btn ${meta.cls}`;
+      btn.dataset.status = status;
+      btn.textContent = meta.label;
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const current = marksCache[itemId] || null;
+        const next = current === status ? null : status;
+        await saveMark(itemId, next);
+        // на странице объявления карты нет — просто переключаем active state.
+        // injected.js (если открыта вкладка с картой) синхронизируется через storage.onChanged.
+      });
+      bar.appendChild(btn);
+    }
+    h1.insertAdjacentElement('afterend', bar);
+    refreshButtonsForItemPage(itemId);
+  };
+
+  const refreshButtonsForItemPage = (itemId) => {
+    const bar = document.querySelector('.lam-item-bar');
+    if (!bar) return;
+    const current = marksCache[String(itemId)] || null;
+    bar.querySelectorAll('button[data-status]').forEach(btn => {
+      btn.classList.toggle('lam-active', btn.dataset.status === current);
+    });
+  };
+
+  const observeItemPage = () => {
+    if (!itemIdFromLocation()) return;
+    const tryAttach = () => ensureButtonsOnItemPage();
+    tryAttach();
+    const mo = new MutationObserver(tryAttach);
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  };
+
   // ---------- start ----------
   const start = async () => {
     await loadAll();
     observeMapinfo();
+    observeItemPage();
   };
 
   if (document.readyState === 'loading') {
