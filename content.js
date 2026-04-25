@@ -5,7 +5,9 @@
 // 4) Общается с injected.js через window.postMessage (одноимённое окно).
 
 (() => {
-  const STORAGE_KEY = 'marks';
+  const STORAGE_MARKS = 'marks';
+  const STORAGE_SETTINGS = 'settings';
+  const DEFAULT_SETTINGS = { showHidden: false };
   const STATUSES = {
     important: { label: '★ Важное', cls: 'lam-important' },
     medium:    { label: '• Среднее', cls: 'lam-medium' },
@@ -24,41 +26,57 @@
 
   // ---------- storage ----------
   let marksCache = {};
-  const loadMarks = async () => {
-    const r = await chrome.storage.local.get(STORAGE_KEY);
-    marksCache = r[STORAGE_KEY] || {};
+  let settingsCache = { ...DEFAULT_SETTINGS };
+
+  const loadAll = async () => {
+    const r = await chrome.storage.local.get([STORAGE_MARKS, STORAGE_SETTINGS]);
+    marksCache = r[STORAGE_MARKS] || {};
+    settingsCache = Object.assign({}, DEFAULT_SETTINGS, r[STORAGE_SETTINGS] || {});
     pushMarksToMain();
-    return marksCache;
+    pushSettingsToMain();
   };
+
   const saveMark = async (id, status) => {
     if (status == null) delete marksCache[id];
     else marksCache[id] = status;
-    await chrome.storage.local.set({ [STORAGE_KEY]: marksCache });
+    await chrome.storage.local.set({ [STORAGE_MARKS]: marksCache });
     pushMarksToMain();
   };
+
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes[STORAGE_KEY]) {
-      marksCache = changes[STORAGE_KEY].newValue || {};
+    if (area !== 'local') return;
+    if (changes[STORAGE_MARKS]) {
+      marksCache = changes[STORAGE_MARKS].newValue || {};
       pushMarksToMain();
       refreshButtonsForCurrentMapinfo();
+    }
+    if (changes[STORAGE_SETTINGS]) {
+      settingsCache = Object.assign({}, DEFAULT_SETTINGS, changes[STORAGE_SETTINGS].newValue || {});
+      pushSettingsToMain();
     }
   });
 
   // ---------- MAIN <-> ISOLATED bridge ----------
   const MSG = {
     MARKS_PUSH: 'lam:marks-push',
-    MARK_HIDDEN_ID: 'lam:mark-hidden',
+    SETTINGS_PUSH: 'lam:settings-push',
     MARK_UPDATE_ID: 'lam:mark-update',
     MAIN_READY: 'lam:main-ready',
   };
   const pushMarksToMain = () => {
     window.postMessage({ source: 'lam-content', type: MSG.MARKS_PUSH, marks: marksCache }, '*');
   };
+  const pushSettingsToMain = () => {
+    window.postMessage({ source: 'lam-content', type: MSG.SETTINGS_PUSH, settings: settingsCache }, '*');
+  };
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     const d = e.data;
     if (!d || d.source !== 'lam-injected') return;
-    if (d.type === MSG.MAIN_READY) pushMarksToMain();
+    if (d.type === MSG.MAIN_READY) {
+      pushMarksToMain();
+      pushSettingsToMain();
+    }
   });
 
   // ---------- mapinfo UI ----------
@@ -112,13 +130,10 @@
           const next = current === status ? null : status;
           await saveMark(itemId, next);
 
-          if (next === 'hidden') {
-            window.postMessage({ source: 'lam-content', type: MSG.MARK_HIDDEN_ID, id: itemId }, '*');
+          // injected.js сам решит — удалить или перекрасить, в зависимости от status и settings.
+          window.postMessage({ source: 'lam-content', type: MSG.MARK_UPDATE_ID, id: itemId }, '*');
+          if (next === 'hidden' && !settingsCache.showHidden) {
             mapinfo.style.display = 'none';
-          } else {
-            // important/medium/null — обновим карту: list.am перезапросит точки и наш patch
-            // вернёт label с префиксом ★/•, по которому CSS подсветит метку.
-            window.postMessage({ source: 'lam-content', type: MSG.MARK_UPDATE_ID, id: itemId }, '*');
           }
         });
         bar.appendChild(btn);
@@ -143,7 +158,7 @@
 
   // ---------- start ----------
   const start = async () => {
-    await loadMarks();
+    await loadAll();
     observeMapinfo();
   };
 

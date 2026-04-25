@@ -4,17 +4,35 @@
 <meta charset="utf-8">
 <title>list.am marks</title>
 <style>
-  body { font: 13px/1.4 -apple-system, system-ui, sans-serif; min-width: 240px; padding: 12px; }
-  h1 { font-size: 14px; margin: 0 0 8px; }
+  body { font: 13px/1.4 -apple-system, system-ui, sans-serif; min-width: 260px; padding: 12px; margin: 0; }
+  h1 { font-size: 14px; margin: 0 0 10px; }
   .row { display: flex; justify-content: space-between; padding: 4px 0; }
-  button { margin-top: 10px; padding: 6px 10px; cursor: pointer; }
+  .section { border-top: 1px solid #eee; margin-top: 12px; padding-top: 10px; }
+  .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .toggle input { margin: 0; }
+  .actions { display: flex; gap: 6px; margin-top: 12px; }
+  .actions button { flex: 1; padding: 6px 8px; cursor: pointer; }
+  .muted { color: #888; font-size: 12px; margin-top: 4px; }
 </style>
 </head>
 <body>
 <h1>list.am map marks</h1>
+
 <div id="stats">…</div>
-<button id="export">Экспорт JSON</button>
-<button id="clear">Сбросить всё</button>
+
+<div class="section">
+  <label class="toggle">
+    <input type="checkbox" id="showHidden">
+    <span>Показывать скрытые метки (серым)</span>
+  </label>
+  <div class="muted">При выкл. скрытые объявления полностью убираются с карты.</div>
+</div>
+
+<div class="actions">
+  <button id="export">Экспорт JSON</button>
+  <button id="clear">Сбросить всё</button>
+</div>
+
 <script src="popup.js"></script>
 </body>
 </html>

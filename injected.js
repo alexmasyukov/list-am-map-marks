@@ -10,15 +10,17 @@
   const PRESET = {
     important: 'islands#redStretchyIcon',
     medium:    'islands#greenStretchyIcon',
+    hidden:    'islands#grayStretchyIcon',
   };
 
   const STATE = {
     marks: {},
+    settings: { showHidden: false },
     map: null,
-    clusterers: new Set(),  // контейнеры (Clusterer/ObjectManager) с placemark'ами
+    clusterers: new Set(),
     pmById: new Map(),
     pmByCoord: new Map(),
-    pmContainer: new WeakMap(), // pm -> container (чтобы знать куда remove)
+    pmContainer: new WeakMap(),
     coordsToIds: new Map(),
     pmOrigPreset: new WeakMap(),
   };
@@ -28,7 +30,7 @@
   // ---------- bridge ----------
   const MSG = {
     MARKS_PUSH: 'lam:marks-push',
-    MARK_HIDDEN_ID: 'lam:mark-hidden',
+    SETTINGS_PUSH: 'lam:settings-push',
     MARK_UPDATE_ID: 'lam:mark-update',
     MAIN_READY: 'lam:main-ready',
   };
@@ -43,32 +45,35 @@
       for (const [id, set] of STATE.pmById.entries()) {
         for (const pm of set) applyMarkToPlacemark(pm, id);
       }
-    } else if (d.type === MSG.MARK_HIDDEN_ID) {
-      reharvestAll();
-      removePlacemarkLive(String(d.id));
+    } else if (d.type === MSG.SETTINGS_PUSH) {
+      const prev = STATE.settings.showHidden;
+      STATE.settings = Object.assign({}, STATE.settings, d.settings || {});
+      if (prev !== STATE.settings.showHidden) onShowHiddenToggled(prev, STATE.settings.showHidden);
     } else if (d.type === MSG.MARK_UPDATE_ID) {
       reharvestAll();
       const id = String(d.id);
-      const set = STATE.pmById.get(id);
-      if (set) for (const pm of set) applyMarkToPlacemark(pm, id);
+      handleStatusChange(id);
     }
   });
   window.postMessage({ source: 'lam-injected', type: MSG.MAIN_READY }, '*');
 
   // ---------- response filter ----------
-  // Только: выкидываем hidden и обновляем coordsToIds.
-  // Перекраска делается через ymaps preset уже после создания placemark'а.
+  // - всегда обновляем coordsToIds;
+  // - hidden выкидываем только если settings.showHidden === false; иначе оставляем (потом перекрасим в серый).
   const filterMapResponse = (rawText) => {
     try {
       const json = JSON.parse(rawText);
       if (!json || !Array.isArray(json.data)) return rawText;
+      const showHidden = !!STATE.settings.showHidden;
       const filtered = [];
       for (const point of json.data) {
         if (!point || !Array.isArray(point.data)) { filtered.push(point); continue; }
         const ck = normCoordKey(point.lat, point.lng);
         STATE.coordsToIds.set(ck, point.data.map(ad => String(ad.id)));
 
-        const ads = point.data.filter(ad => STATE.marks[String(ad.id)] !== 'hidden');
+        const ads = showHidden
+          ? point.data
+          : point.data.filter(ad => STATE.marks[String(ad.id)] !== 'hidden');
         if (ads.length === 0) continue;
         filtered.push({ ...point, data: ads });
       }
@@ -159,21 +164,67 @@
   const applyMarkToPlacemark = (pm, idStr) => {
     if (!pm || !pm.options || typeof pm.options.set !== 'function') return;
     const status = STATE.marks[String(idStr)];
-    // запомним original preset один раз
     if (!STATE.pmOrigPreset.has(pm)) {
       try { STATE.pmOrigPreset.set(pm, pm.options.get ? pm.options.get('preset') : undefined); } catch(_) {}
     }
     try {
       if (status === 'important' || status === 'medium') {
         pm.options.set('preset', PRESET[status]);
+      } else if (status === 'hidden' && STATE.settings.showHidden) {
+        pm.options.set('preset', PRESET.hidden);
       } else {
-        // снимаем — возвращаем исходный preset (или undefined чтобы взять дефолт)
         const orig = STATE.pmOrigPreset.get(pm);
         pm.options.set('preset', orig);
       }
     } catch(e) {
       console.warn('[lam] applyMark error', e);
     }
+  };
+
+  // Реагируем на смену статуса конкретного объявления.
+  // hidden + !showHidden → удалить с карты.
+  // в остальных случаях → перекрасить (или вернуть оригинал).
+  const handleStatusChange = (idStr) => {
+    const status = STATE.marks[idStr];
+    if (status === 'hidden' && !STATE.settings.showHidden) {
+      removePlacemarkLive(idStr);
+      return;
+    }
+    const set = STATE.pmById.get(idStr);
+    if (!set || set.size === 0) {
+      // если placemark был удалён ранее (hidden), а теперь сняли hidden или включили showHidden —
+      // в clusterer'е его уже нет. Дёрнем bounds, чтобы list.am перезапросил карту.
+      nudgeBounds();
+      return;
+    }
+    for (const pm of set) applyMarkToPlacemark(pm, idStr);
+  };
+
+  // Срабатывает когда пользователь переключил «показывать скрытые» в popup.
+  const onShowHiddenToggled = (prev, next) => {
+    if (next) {
+      // включаем показ — нужно вернуть скрытые placemark'и в clusterer.
+      // фильтр уже не вырежет их при следующем запросе → дёрнем bounds.
+      nudgeBounds();
+    } else {
+      // выключаем — пройдёмся по hidden id'ам и удалим из карты.
+      for (const [id, status] of Object.entries(STATE.marks)) {
+        if (status === 'hidden') removePlacemarkLive(String(id));
+      }
+    }
+  };
+
+  const nudgeBounds = () => {
+    const map = STATE.map;
+    if (!map || !map.getCenter || !map.setCenter) return;
+    try {
+      const c = map.getCenter();
+      const z = map.getZoom();
+      map.setCenter([c[0] + 1e-7, c[1] + 1e-7], z, { duration: 0, checkZoomRange: false });
+      setTimeout(() => {
+        try { map.setCenter(c, z, { duration: 0, checkZoomRange: false }); } catch(_) {}
+      }, 50);
+    } catch(_) {}
   };
 
   const registerPlacemark = (pm, geom, props, container) => {
